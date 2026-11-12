@@ -28,6 +28,12 @@
 # jellyfin_bind = "web"
 # jellyfin_bind = "0.0.0.0:8096"
 
+# Show Pley's administrators to the Jellyfin-compatible API as Jellyfin
+# administrators, for request apps (Seerr, Jellyseerr) whose setup asks for
+# one. Off by default: Jellyfin's players would offer them a dashboard Pley
+# doesn't have. It gives no right (docs/COMPATIBILITY.md).
+# jellyfin_administrators = true
+
 # Answer the Pley apps looking for servers on the local network (UDP, on the
 # web port). Servers bound to 127.0.0.1 never answer.
 # discovery = true

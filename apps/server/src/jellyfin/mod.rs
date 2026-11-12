@@ -313,6 +313,40 @@ pub(crate) fn manager(user: AuthUser) -> JfResult<AuthUser> {
     Ok(AuthUser { is_admin: true, ..user })
 }
 
+/// Whether the account is shown to this API as a Jellyfin administrator
+/// (`Policy.IsAdministrator`): an administrator of Pley's, while the server
+/// says so (`jellyfin_administrators`). Request apps such as Seerr take no
+/// one else for their setup; Jellyfin's players would offer a dashboard
+/// that can't work, so it is off unless turned on. Being shown so gives no
+/// right: every route checks the caller as before.
+pub(crate) async fn shown_as_administrator(state: &AppState, user_id: i64) -> JfResult<bool> {
+    if !state.config.jellyfin_administrators {
+        return Ok(false);
+    }
+    let account = crate::accounts::user(&state.db, user_id).await?;
+    Ok(account.is_some_and(|account| account.is_admin && !account.disabled))
+}
+
+/// A caller [`shown_as_administrator`], with the token it was sent with:
+/// the routes only Jellyfin's administrators reach (`/Auth/Keys`).
+pub struct JfAdministrator {
+    pub client: Client,
+    pub token: String,
+}
+
+impl FromRequestParts<AppState> for JfAdministrator {
+    type Rejection = JfError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+        let JfUser { user, client } = JfUser::from_request_parts(parts, state).await?;
+        if !shown_as_administrator(state, user.id).await? {
+            return Err(JfError::Forbidden);
+        }
+        let token = request_token(parts, &client).ok_or(JfError::Unauthorized)?;
+        Ok(JfAdministrator { client, token })
+    }
+}
+
 /// The client as it names itself, signed in or not.
 pub struct ClientOf(pub Client);
 

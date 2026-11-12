@@ -27,6 +27,9 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/userviews", get(views))
         .route("/users/{user}/views", get(views))
+        // Jellyfin's administrators' list of libraries (request apps read it,
+        // Seerr among them): the caller's views here.
+        .route("/library/mediafolders", get(views))
         .route("/items", get(items))
         .route("/users/{user}/items", get(items))
         .route("/items/latest", get(latest))

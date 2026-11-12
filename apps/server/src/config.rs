@@ -64,6 +64,11 @@ pub struct Cli {
     #[arg(long, env = "PLEY_JELLYFIN_BIND", global = true)]
     pub jellyfin_bind: Option<String>,
 
+    /// Show Pley's administrators to the Jellyfin-compatible API as Jellyfin administrators, for
+    /// request apps (Seerr, Jellyseerr) whose setup asks for one
+    #[arg(long, env = "PLEY_JELLYFIN_ADMINISTRATORS", global = true)]
+    pub jellyfin_administrators: bool,
+
     /// Path to the ffmpeg binary
     #[arg(long, env = "PLEY_FFMPEG", global = true)]
     pub ffmpeg: Option<PathBuf>,
@@ -145,6 +150,7 @@ struct FileConfig {
     bind: Option<String>,
     plex_bind: Option<String>,
     jellyfin_bind: Option<String>,
+    jellyfin_administrators: Option<bool>,
     data_dir: Option<PathBuf>,
     transcode_dir: Option<PathBuf>,
     ffmpeg: Option<PathBuf>,
@@ -183,6 +189,11 @@ pub struct Config {
     /// That API answers on pley's own port (`jellyfin_bind = "web"`, see
     /// [`crate::jellyfin::on_web_port`]).
     pub jellyfin_on_web: bool,
+    /// Pley's administrators are Jellyfin administrators to that API
+    /// (`Policy.IsAdministrator`), for request apps such as Seerr whose setup
+    /// takes no one else; off unless turned on (see
+    /// [`crate::jellyfin::shown_as_administrator`]).
+    pub jellyfin_administrators: bool,
     /// What Pley left out of `pley.toml` as it read it, said once in the log
     /// (which starts after the file is read).
     pub file_warnings: Vec<String>,
@@ -295,6 +306,7 @@ impl Config {
             jellyfin_bind: jellyfin_binds.first().copied(),
             jellyfin_extra_binds: jellyfin_binds.iter().skip(1).copied().collect(),
             jellyfin_on_web,
+            jellyfin_administrators: cli.jellyfin_administrators || file.jellyfin_administrators.unwrap_or(false),
             file_warnings,
             ffmpeg: cli.ffmpeg.clone().or(file.ffmpeg).unwrap_or_else(|| PathBuf::from("ffmpeg")),
             ffprobe: cli.ffprobe.clone().or(file.ffprobe).unwrap_or_else(|| PathBuf::from("ffprobe")),
@@ -342,6 +354,7 @@ impl Config {
             jellyfin_bind: None,
             jellyfin_extra_binds: Vec::new(),
             jellyfin_on_web: false,
+            jellyfin_administrators: false,
             file_warnings: Vec::new(),
             data_dir: data_dir.to_path_buf(),
             transcode_dir: data_dir.join("transcode"),
@@ -761,6 +774,18 @@ mod tests {
     }
 
     #[test]
+    fn jellyfin_administrators_are_shown_only_when_turned_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut args = cli(dir.path());
+        assert!(!Config::load(&args).unwrap().jellyfin_administrators, "off by default");
+        args.jellyfin_administrators = true;
+        assert!(Config::load(&args).unwrap().jellyfin_administrators, "--jellyfin-administrators");
+        args.jellyfin_administrators = false;
+        std::fs::write(dir.path().join("pley.toml"), "jellyfin_administrators = true\n").unwrap();
+        assert!(Config::load(&args).unwrap().jellyfin_administrators, "pley.toml");
+    }
+
+    #[test]
     fn the_jellyfin_api_is_off_unless_turned_on() {
         let dir = tempfile::tempdir().unwrap();
         let mut args = cli(dir.path());
@@ -878,6 +903,7 @@ mod tests {
             transcode_dir: None,
             bind: None,
             jellyfin_bind: None,
+            jellyfin_administrators: false,
             plex_bind: None,
             ffmpeg: None,
             ffprobe: None,

@@ -27,6 +27,12 @@ describes how they are made.
   devices can't find it, and how to fix that.
 - In a container with no media folder mounted, adding a library says how
   to mount one.
+- Seerr and Jellyseerr can connect to Pley through the Jellyfin-compatible
+  API: with `jellyfin_administrators` on (`PLEY_JELLYFIN_ADMINISTRATORS`,
+  `--jellyfin-administrators`), Pley's administrators show as Jellyfin
+  administrators, their setup gets the token it signed in with as its key
+  (`/Auth/Keys`), and `/Library/MediaFolders` lists the libraries. Off by
+  default.
 
 ### Changed
 

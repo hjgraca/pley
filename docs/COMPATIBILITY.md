@@ -619,12 +619,49 @@ Apps send the token as Jellyfin's apps do:
 A token sees what Pley's [access rules](API.md#access-rules) let its
 account see, with the account's own watch state, and never acts as an
 administrator, whatever its scopes: `Policy.IsAdministrator` is `false` for
-everyone, and nothing administers through this API. A token with `manage`
+everyone (unless the server shows its administrators to request apps,
+[below](#request-apps-seerr-jellyseerr)), and nothing administers through
+this API. A token with `manage`
 changes collections and edits metadata, as administrators do in Pley, and
 `Policy.EnableCollectionManagement` says so. `/Users` lists the
 caller alone and `/Users/Public` no one, so no names are shown before
 signing in; a user id in a path (`/Users/{id}/Items`) must be the caller's
 (`404` otherwise).
+
+### Request apps (Seerr, Jellyseerr)
+
+Seerr and Jellyseerr take requests for movies and shows and send them to
+Radarr and Sonarr; they connect to a media server to sign people in and to
+see what its libraries have. Their setup signs in with Jellyfin's
+administrator, so they connect to Pley only when the server shows its
+administrators as Jellyfin's:
+
+| Where | Setting |
+|---|---|
+| Command line | `--jellyfin-administrators` |
+| Environment | `PLEY_JELLYFIN_ADMINISTRATORS=true` |
+| `pley.toml` | `jellyfin_administrators = true` |
+
+It is off by default: Jellyfin's players offer an administrator a
+dashboard, which Pley doesn't have. Turned on, it changes what the API
+says, not what anyone may do:
+
+- `Policy.IsAdministrator` is `true` for Pley's administrators (not for
+  disabled accounts), `false` for everyone else.
+- `POST /Auth/Keys?App=` and `GET /Auth/Keys`, which the app asks for to
+  make a key of its own, answer administrators only (`403` otherwise).
+  Pley makes no key: the list holds the caller's own token, named for the
+  app (its `Client`), which the app keeps as its key. It is the token the
+  app signed in with, a token for other apps that may play
+  ([Tokens for other apps](#tokens-for-other-apps)), listed and revoked on
+  the account page; Pley keeps tokens only as hashes, so no other is shown.
+- `GET /Library/MediaFolders`, the libraries the app reads, lists the
+  caller's libraries, as `/UserViews` does, for anyone signed in.
+
+In the app's setup, choose Jellyfin and give Pley's address with the
+API's port (`8096`, or Pley's own when the API is on it), with an
+administrator's name and password. Importing users from the media server
+isn't supported: `/Users` lists the caller alone.
 
 ### Ids, streams and pictures
 
@@ -853,8 +890,8 @@ this is for scripts and tools.
 | Area | Endpoints |
 |---|---|
 | Server | `GET /System/Info/Public`, `/System/Info`, `/System/Ping`, `/System/Endpoint`, `/Branding/Configuration`, `/Branding/Css`, `/QuickConnect/Enabled` (`false`; `/QuickConnect/Initiate` and `/Connect` answer `401`), `/Playback/BitrateTest` (`size` random bytes for a speed test, at most 100 MB) |
-| Users | `POST /Users/AuthenticateByName`, `GET /Users/Me`, `/Users`, `/Users/Public`, `/Users/{id}`, `/Users/{id}/Images/Primary`, `/UserImage?userId=`, `POST /Sessions/Logout`, `/Sessions/Capabilities[/Full]`, `GET|POST /DisplayPreferences/{id}` |
-| Browsing | `GET /UserViews`, `/Items` (by `ParentId`, `Ids`, `SearchTerm`, `PersonIds`, `ArtistIds`; `IncludeItemTypes`, `Recursive`, `Filters`, `Genres`, `Years`, `OfficialRatings`, `Tags`, `Studios`, `NameStartsWith`, `SortBy`, `SortOrder`, `StartIndex`, `Limit`), `/Items/{id}`, `/Items/Latest`, `/Items/Suggestions`, `/UserItems/Resume`, `/Shows/NextUp`, `/Shows/Upcoming` (none), `/Shows/{id}/Seasons`, `/Shows/{id}/Episodes`, `/Items/{id}/Similar`, `/LocalTrailers`, `/SpecialFeatures`, `/Ancestors`, `/Items/Filters`, `/Items/Filters2`, `/Genres`, `/MusicGenres`, `/Artists`, `/Artists/AlbumArtists`, `/Studios`, `/Years`, `/Tags` (none), `/Persons?SearchTerm=`, `/Search/Hints`, `/Playlists/{id}/Items`, and the `/Users/{id}/…` forms of these |
+| Users | `POST /Users/AuthenticateByName`, `GET /Users/Me`, `/Users`, `/Users/Public`, `/Users/{id}`, `/Users/{id}/Images/Primary`, `/UserImage?userId=`, `POST /Sessions/Logout`, `/Sessions/Capabilities[/Full]`, `GET|POST /DisplayPreferences/{id}`, `GET|POST /Auth/Keys` (administrators [shown to request apps](#request-apps-seerr-jellyseerr)) |
+| Browsing | `GET /UserViews`, `/Library/MediaFolders`, `/Items` (by `ParentId`, `Ids`, `SearchTerm`, `PersonIds`, `ArtistIds`; `IncludeItemTypes`, `Recursive`, `Filters`, `Genres`, `Years`, `OfficialRatings`, `Tags`, `Studios`, `NameStartsWith`, `SortBy`, `SortOrder`, `StartIndex`, `Limit`), `/Items/{id}`, `/Items/Latest`, `/Items/Suggestions`, `/UserItems/Resume`, `/Shows/NextUp`, `/Shows/Upcoming` (none), `/Shows/{id}/Seasons`, `/Shows/{id}/Episodes`, `/Items/{id}/Similar`, `/LocalTrailers`, `/SpecialFeatures`, `/Ancestors`, `/Items/Filters`, `/Items/Filters2`, `/Genres`, `/MusicGenres`, `/Artists`, `/Artists/AlbumArtists`, `/Studios`, `/Years`, `/Tags` (none), `/Persons?SearchTerm=`, `/Search/Hints`, `/Playlists/{id}/Items`, and the `/Users/{id}/…` forms of these |
 | Playlists | `POST /Playlists` (a `CreatePlaylistDto` body, or `Name`, `Ids`, `MediaType` in the query), `GET|POST /Playlists/{id}`, `POST|DELETE /Playlists/{id}/Items` (`ids`, `position`; `entryIds`), `POST /Playlists/{id}/Items/{entry}/Move/{index}`, `GET /Playlists/{id}/Users[/{user}]`, `DELETE /Items/{id}` |
 | Collections | `POST /Collections?name=&ids=&parentId=`, `POST|DELETE /Collections/{id}/Items?ids=`, `DELETE /Items/{id}` (`manage`) |
 | Editing | `POST /Items/{id}`, `GET /Items/{id}/MetadataEditor`, `/Items/{id}/ExternalIdInfos` (none), `POST /Items/{id}/Refresh`, `GET /Items/{id}/RemoteImages`, `/Items/{id}/RemoteImages/Providers`, `POST /Items/{id}/RemoteImages/Download`, `POST|DELETE /Items/{id}/Images/{type}[/0]`, `POST /Items/RemoteSearch/Movie`, `/Items/RemoteSearch/Series`, `/Items/RemoteSearch/Apply/{id}` (`manage`) |
