@@ -1150,3 +1150,76 @@ async fn every_part_of_the_api_is_reached_on_pleys_port() {
         assert!(theirs(&reply), "{path}: {} {}", reply.status, reply.text());
     }
 }
+
+/// What Seerr sends with every request, its token added once it has one.
+const SEERR: &str = r#"MediaBrowser Client="Seerr", Device="Seerr", DeviceId="seerr-1", Version="3.0.0""#;
+
+async fn seerr_sign_in(app: &TestApp, username: &str, password: &str) -> Reply {
+    let body = json!({"Username": username, "Pw": password});
+    app.jf_raw(Method::POST, "/Users/AuthenticateByName", &[("authorization", SEERR)], Some(body)).await
+}
+
+#[tokio::test]
+async fn request_apps_set_up_with_an_administrator_when_the_server_shows_them() {
+    let app = TestApp::with_config(|config| config.jellyfin_administrators = true).await;
+    let admin = app.setup_admin().await;
+    app.library(&admin, "Movies", "movies", "movies").await;
+    let (bob, _) = app.user(&admin, "bob", json!({})).await;
+
+    // Seerr's setup: an administrator signs in...
+    let signed_in = seerr_sign_in(&app, "admin", "secret-one").await;
+    assert_eq!(signed_in.status, StatusCode::OK, "{}", signed_in.text());
+    assert_eq!(signed_in.body["User"]["Policy"]["IsAdministrator"], json!(true));
+    let token = signed_in.body["AccessToken"].as_str().unwrap().to_owned();
+    let auth = format!(r#"{SEERR}, Token="{token}""#);
+    let headers = [("authorization", auth.as_str())];
+
+    // ...asks for a key and takes it from the list: the token it has.
+    let made = app.jf_raw(Method::POST, "/Auth/Keys?App=Seerr", &headers, None).await;
+    assert_eq!(made.status, StatusCode::NO_CONTENT);
+    let keys = app.jf_raw(Method::GET, "/Auth/Keys", &headers, None).await;
+    assert_eq!(keys.status, StatusCode::OK);
+    let items = keys.body["Items"].as_array().unwrap();
+    assert_eq!(items.len(), 1, "no one else's");
+    assert_eq!((&items[0]["AppName"], &items[0]["AccessToken"]), (&json!("Seerr"), &json!(token)));
+    let listed = app.get("/api/me/compatibility-tokens", &admin).await.body;
+    assert!(listed.as_array().unwrap().iter().any(|t| t["name"] == "Seerr on Seerr"), "the account page lists it");
+
+    // ...and reads the libraries.
+    let folders = app.jf_raw(Method::GET, "/Library/MediaFolders", &headers, None).await;
+    assert_eq!(folders.status, StatusCode::OK);
+    assert_eq!(jf_names(&folders.body), ["Movies"]);
+    let folder = &folders.body["Items"][0];
+    assert_eq!((&folder["Type"], &folder["CollectionType"]), (&json!("CollectionFolder"), &json!("movies")));
+
+    // The token administers nothing in Pley's own API all the same.
+    assert_eq!(app.get("/api/auth/me", &token).await.status, StatusCode::UNAUTHORIZED);
+
+    // Someone else is no administrator, and gets no key.
+    let other = seerr_sign_in(&app, "bob", "test-pass-1").await;
+    assert_eq!(other.body["User"]["Policy"]["IsAdministrator"], json!(false));
+    let other = format!(r#"{SEERR}, Token="{}""#, other.body["AccessToken"].as_str().unwrap());
+    let refused = app.jf_raw(Method::GET, "/Auth/Keys", &[("authorization", other.as_str())], None).await;
+    assert_eq!(refused.status, StatusCode::FORBIDDEN);
+    let refused = app.jf_raw(Method::POST, "/Auth/Keys?App=Seerr", &[("authorization", other.as_str())], None).await;
+    assert_eq!(refused.status, StatusCode::FORBIDDEN);
+    assert_eq!(app.get("/api/auth/me", &bob).await.status, StatusCode::OK, "bob's own session goes on");
+
+    // Without a token, nothing.
+    let anonymous = app.jf_raw(Method::GET, "/Auth/Keys", &[("authorization", SEERR)], None).await;
+    assert_eq!(anonymous.status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn administrators_stay_hidden_unless_the_server_shows_them() {
+    let app = TestApp::new().await;
+    app.setup_admin().await;
+    let signed_in = seerr_sign_in(&app, "admin", "secret-one").await;
+    assert_eq!(signed_in.body["User"]["Policy"]["IsAdministrator"], json!(false));
+    let auth = format!(r#"{SEERR}, Token="{}""#, signed_in.body["AccessToken"].as_str().unwrap());
+    let headers = [("authorization", auth.as_str())];
+    assert_eq!(app.jf_raw(Method::GET, "/Auth/Keys", &headers, None).await.status, StatusCode::FORBIDDEN);
+    assert_eq!(app.jf_raw(Method::POST, "/Auth/Keys?App=Seerr", &headers, None).await.status, StatusCode::FORBIDDEN);
+    let folders = app.jf_raw(Method::GET, "/Library/MediaFolders", &headers, None).await;
+    assert_eq!(folders.status, StatusCode::OK, "the caller's libraries, as /UserViews");
+}

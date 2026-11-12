@@ -13,7 +13,7 @@ use axum::{Extension, Json, Router};
 use serde::Serialize;
 
 use super::ids::Kind;
-use super::{Body, Client, ClientOf, Jellyfin, JfError, JfResult, JfUser, Q};
+use super::{Body, Client, ClientOf, Jellyfin, JfAdministrator, JfError, JfResult, JfUser, Q};
 use crate::auth::{AuthUser, ClientIp, SourceIp, UsedFrom, compatibility};
 use crate::state::AppState;
 
@@ -30,6 +30,7 @@ pub fn routes() -> Router<AppState> {
         .route("/sessions/capabilities", post(capabilities))
         .route("/sessions/capabilities/full", post(capabilities))
         .route("/displaypreferences/{id}", get(display_preferences).post(accepted))
+        .route("/auth/keys", get(api_keys).post(new_api_key))
 }
 
 /// A time as Jellyfin writes them: ISO 8601 in UTC, seven digits of
@@ -130,6 +131,7 @@ struct UserPolicy {
 /// a player's token is a viewer's, an administrator's account included.
 pub async fn user_dto(state: &AppState, jellyfin: &Jellyfin, user: &AuthUser) -> JfResult<UserDto> {
     let account = crate::accounts::user(&state.db, user.id).await?.ok_or(JfError::Unauthorized)?;
+    let is_administrator = super::shown_as_administrator(state, user.id).await?;
     let seen = iso(crate::util::now());
     let subtitle_mode = match account.subtitle_mode {
         crate::streams::SubtitleMode::Off => "None",
@@ -168,7 +170,9 @@ pub async fn user_dto(state: &AppState, jellyfin: &Jellyfin, user: &AuthUser) ->
         policy: UserPolicy {
             // Nothing administers through this API, an administrator's
             // sign-in included: clients then offer no dashboard that fails.
-            is_administrator: false,
+            // Only for request apps, when the server says so, are Pley's
+            // administrators Jellyfin's ([`super::shown_as_administrator`]).
+            is_administrator,
             is_hidden: true,
             // As Pley lets the token: with `manage`, collections change here.
             enable_collection_management: user.compatibility_allows(crate::auth::compatibility::Scope::Manage),
@@ -417,6 +421,39 @@ async fn capabilities(State(state): State<AppState>, JfUser { user, client }: Jf
         state.jellyfin_remotes.declare(user.id, device, supports);
     }
     StatusCode::NO_CONTENT
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "PascalCase")]
+struct ApiKey {
+    access_token: String,
+    app_name: String,
+    date_created: String,
+    is_active: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "PascalCase")]
+struct ApiKeys {
+    items: [ApiKey; 1],
+    total_record_count: u32,
+    start_index: u32,
+}
+
+/// `POST /Auth/Keys?App=`: Jellyfin makes a key for an app, which request
+/// apps (Seerr) ask for as their setup ends. Pley makes none: the app keeps
+/// the token it signed in with, which the account page lists and revokes.
+async fn new_api_key(_caller: JfAdministrator) -> StatusCode {
+    StatusCode::NO_CONTENT
+}
+
+/// `GET /Auth/Keys`: the caller's own token, named for the client that sent
+/// it, which an app that just asked for a key takes as its key. Pley keeps
+/// tokens only as hashes, so it has no other to show, nor anyone else's.
+async fn api_keys(JfAdministrator { client, token }: JfAdministrator) -> Json<ApiKeys> {
+    let app_name = client.client.unwrap_or_else(|| "Jellyfin app".into());
+    let key = ApiKey { access_token: token, app_name, date_created: iso(crate::util::now()), is_active: true };
+    Json(ApiKeys { items: [key], total_record_count: 1, start_index: 0 })
 }
 
 /// What clients tell the server of themselves and their layouts, which
