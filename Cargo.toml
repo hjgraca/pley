@@ -4,6 +4,7 @@ members = [
     "apps/server",
     "apps/transcoder",
     "packages/transcoder-api",
+    "packages/releases",
 ]
 default-members = ["apps/server", "apps/transcoder"]
 # The desktop app (Tauri and its webview libraries) and Pley for LG TV (a
@@ -16,6 +17,7 @@ exclude = ["apps/desktop/src-tauri", "apps/webos"]
 # - apps/server               pley-server; must never depend on pley-transcoder
 # - apps/transcoder           pley-transcoder; a separate program, spoken to only over HTTP
 # - packages/transcoder-api   pley-transcoder-api; wire types shared by both
+# - packages/releases         pley-releases; release names read into title, episodes, quality
 
 [profile.dev]
 debug = "line-tables-only"

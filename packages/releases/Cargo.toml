@@ -1,0 +1,15 @@
+[package]
+name = "pley-releases"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+description = "Release names read into what they hold: title, seasons and episodes, quality, group"
+license = "AGPL-3.0-only"
+publish = false
+
+[dependencies]
+parse-torrent-title = "2.0.10"
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"
